@@ -31,6 +31,12 @@ parser.add_argument('--previous_checkpoint', default=None, type=str, help='Path 
 
 best_acc = 0
 def main():
+
+    # #############################################################
+    # 1) Initialize the dataset, model, optimizer and loss as usual.
+    # Initialize a fake dataset
+
+
     global args, best_acc
     args = parser.parse_args()
 
@@ -58,64 +64,146 @@ def main():
 
     #load data
     train_dset = MILdataset(args.train_lib, trans)
-    train_loader = torch.utils.data.DataLoader(
-        train_dset,
-        batch_size=args.batch_size_train, shuffle=False,
-        num_workers=args.workers, pin_memory=False)
     if args.val_lib:
         val_dset = MILdataset(args.val_lib, trans)
-        val_loader = torch.utils.data.DataLoader(
-            val_dset,
-            batch_size=args.batch_size_val, shuffle=False,
+    # #############################################################
+    # 2) Set parameters for the adaptive batch size
+    adapt = True  # while this is true, the algorithm will perform batch adaptation
+    gpu_batch_size = 128  # initial gpu batch_size, it can be super small
+    train_batch_size = 512  # the train batch size of desire
+    continue_training = True
+    # Modified training loop to allow for adaptive batch size
+    while continue_training:
+
+        # #############################################################
+        # 3) Initialize dataloader and batch spoofing parameter
+        # Dataloader has to be reinicialized for each new batch size.
+        train_loader = torch.utils.data.DataLoader(
+            train_dset,
+            batch_size=int(gpu_batch_size), shuffle=False,
             num_workers=args.workers, pin_memory=False)
 
-    #open output file
-    fconv = open(os.path.join(args.output,'convergence.csv'), 'w')
-    fconv.write('epoch,metric,value\n')
-    fconv.close()
 
-    #loop throuh epochs
-    for epoch in range(args.nepochs):
-        train_dset.setmode(1)
-        probs = inference(epoch, train_loader, model, 'train')
-        topk = group_argtopk(np.array(train_dset.slideIDX), probs, args.k)
-        train_dset.maketraindata(topk)
-        train_dset.shuffletraindata()
-        train_dset.setmode(2)
-        loss = train(epoch, train_loader, model, criterion, optimizer)
-        print('Training\tEpoch: [{}/{}]\tLoss: {}'.format(epoch+1, args.nepochs, loss))
-        fconv = open(os.path.join(args.output, 'convergence.csv'), 'a')
-        fconv.write('{},loss,{}\n'.format(epoch+1,loss))
-        fconv.close()
+        val_loader = torch.utils.data.DataLoader(
+            val_dset,
+            batch_size=int(gpu_batch_size), shuffle=False,
+            num_workers=args.workers, pin_memory=False)
+        print('\n\n\n ***********************************************************************\n int(gpu_batch_size)   ',
+        int(gpu_batch_size), '\n\n\n ***********************************************************************')
 
-        #Validation
-#         print('args.val_lib  ', args.val_lib)
-#         if args.val_lib :# and (epoch+1) % args.test_every == 0
-        val_dset.setmode(1)
-        probs = inference(epoch, val_loader, model, 'val')
-        maxs = group_max(np.array(val_dset.slideIDX), probs, len(val_dset.targets))
-        pred = [1 if x >= 0.5 else 0 for x in maxs]
-        err,fpr,fnr = calc_err(pred, val_dset.targets)
-        print('Validation\tEpoch: [{}/{}]\tError: {}\tFPR: {}\tFNR: {}'.format(epoch+1, args.nepochs, err, fpr, fnr))
-        fconv = open(os.path.join(args.output, 'convergence.csv'), 'a')
-        fconv.write('{},error,{}\n'.format(epoch+1, err))
-        fconv.write('{},fpr,{}\n'.format(epoch+1, fpr))
-        fconv.write('{},fnr,{}\n'.format(epoch+1, fnr))
-        fconv.close()
-        #Save best model
-        err = (fpr+fnr)/2.
-        print('best_acc  ', best_acc, ' 1-err  ',  1-err)
-        if 1-err >= best_acc:
-            print('1-err  ', 1-err, 'best_acc  ', best_acc)
-            best_acc = 1-err
-            obj = {
-                'epoch': epoch+1,
-                'state_dict': model.state_dict(),
-                'best_acc': best_acc,
-                'optimizer' : optimizer.state_dict()
-            }
-            print('SaVE')
-            torch.save(obj, os.path.join(args.output,'checkpoint_best.pth'))
+
+        # Number of repetitions for batch spoofing
+        repeat = max(1, int(train_batch_size / gpu_batch_size))
+
+        try:  # This will make sure that training is not halted when the batch size is too large
+
+            # #############################################################
+            # 4) Epoch loop with batch spoofing
+            optimizer.zero_grad()  # done before training because of batch spoofing.
+
+            # Emi
+
+            #open output file
+            fconv = open(os.path.join(args.output,'convergence.csv'), 'w')
+            fconv.write('epoch,metric,value\n')
+            fconv.close()
+
+            #loop throuh epochs
+            for epoch in range(args.nepochs):
+
+                train_dset.setmode(1)
+                probs = inference(epoch, train_loader, model, 'train')
+                topk = group_argtopk(np.array(train_dset.slideIDX), probs, args.k)
+                train_dset.maketraindata(topk)
+                train_dset.shuffletraindata()
+                train_dset.setmode(2)
+                loss = train(epoch, train_loader, model, criterion, optimizer)
+                print('Training\tEpoch: [{}/{}]\tLoss: {}'.format(epoch+1, args.nepochs, loss))
+                fconv = open(os.path.join(args.output, 'convergence.csv'), 'a')
+                fconv.write('{},loss,{}\n'.format(epoch+1,loss))
+                fconv.close()
+                #Validation
+                #         print('args.val_lib  ', args.val_lib)
+                #         if args.val_lib :# and (epoch+1) % args.test_every == 0
+                val_dset.setmode(1)
+                probs = inference(epoch, val_loader, model, 'val')
+                maxs = group_max(np.array(val_dset.slideIDX), probs, len(val_dset.targets))
+                pred = [1 if x >= 0.5 else 0 for x in maxs]
+                err,fpr,fnr = calc_err(pred, val_dset.targets)
+                print('Validation\tEpoch: [{}/{}]\tError: {}\tFPR: {}\tFNR: {}'.format(epoch+1, args.nepochs, err, fpr, fnr))
+                fconv = open(os.path.join(args.output, 'convergence.csv'), 'a')
+                fconv.write('{},error,{}\n'.format(epoch+1, err))
+                fconv.write('{},fpr,{}\n'.format(epoch+1, fpr))
+                fconv.write('{},fnr,{}\n'.format(epoch+1, fnr))
+                fconv.close()
+
+
+                flog = open(os.path.join(args.output,'log_BatchSize.csv'), 'a')
+                flog.write('Compatble Batch Size = {} \n'.format(str(gpu_batch_size)))
+                flog.close()
+                # #Save best model
+                # err = (fpr+fnr)/2.
+                # print('best_acc  ', best_acc, ' 1-err  ',  1-err)
+                # if 1-err >= best_acc:
+                #     print('1-err  ', 1-err, 'best_acc  ', best_acc)
+                #     best_acc = 1-err
+                #     obj = {
+                #         'epoch': epoch+1,
+                #         'state_dict': model.state_dict(),
+                #         'best_acc': best_acc,
+                #         'optimizer' : optimizer.state_dict()
+                #     }
+                #     print('SaVE')
+                #     torch.save(obj, os.path.join(args.output,'checkpoint_best.pth'))
+
+                # #############################################################
+                # 5) Adapt batch size while no RuntimeError is rased.
+                # Increase batch size and get out of the loop
+                if adapt:
+                    gpu_batch_size *= 2
+                    break
+
+                if epoch > 1:
+                    continue_training = False
+
+
+
+                # #############################################################
+                # 5) Adapt batch size while no RuntimeError is rased.
+                # Increase batch size and get out of the loop
+                if adapt:
+                    gpu_batch_size *= 2
+                    break
+
+                # Stopping criteria for training
+                if i > 100:
+                    continue_training = False
+
+        # #############################################################
+        # 6) After the largest batch size is found, the training progresses with the fixed batch size.
+        # CUDA out of memory is a RuntimeError, the moment we will get to it when our batch size is too large.
+        except RuntimeError as run_error:
+
+            flog = open(os.path.join(args.output,'log_BatchSize.csv'), 'a')
+            flog.write('Max Batch Size = {} \n'.format(str(gpu_batch_size)))
+            flog.close()
+
+
+            gpu_batch_size /= 2  # resize the batch size for the biggest that works in memory
+            adapt = False  # turn off the batch adaptation
+
+            # Number of repetitions for batch spoofing
+            repeat = max(1, int(train_batch_size / gpu_batch_size))
+
+            # Manual check if the RuntimeError was caused by the CUDA or something else.
+            print(f"---\nRuntimeError: \n{run_error}\n---\n Is it a cuda error?")
+
+
+
+
+
+
+
 
 def inference(run, loader, model, eval_train):
     model.eval()
