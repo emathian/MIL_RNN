@@ -80,7 +80,7 @@ def main():
     #loop throuh epochs
     for epoch in range(args.nepochs):
         train_dset.setmode(1)
-        probs = inference(epoch, train_loader, model)
+        probs = inference(epoch, train_loader, model, 'train')
         topk = group_argtopk(np.array(train_dset.slideIDX), probs, args.k)
         train_dset.maketraindata(topk)
         train_dset.shuffletraindata()
@@ -94,7 +94,7 @@ def main():
         #Validation
         if args.val_lib and (epoch+1) % args.test_every == 0:
             val_dset.setmode(1)
-            probs = inference(epoch, val_loader, model)
+            probs = inference(epoch, val_loader, model, 'eval')
             maxs = group_max(np.array(val_dset.slideIDX), probs, len(val_dset.targets))
             pred = [1 if x >= 0.5 else 0 for x in maxs]
             err,fpr,fnr = calc_err(pred, val_dset.targets)
