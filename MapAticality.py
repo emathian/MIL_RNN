@@ -13,12 +13,12 @@ import umap
 import matplotlib
 import shutil
 
-pred_file = 'ResMILBs64_2/probability.csv'
+pred_file = 'EfficientNetb2_NormalTumor_TrainingInf/probability.csv'
 
 df_pred_test = pd.read_csv(pred_file,  index_col='Sample')
 print(df_pred_test.head(), '\n\n\n' , df_pred_test.columns, df_pred_test.index)
 try:
-    os.mkdir('ResMap64BS_training2')
+    os.mkdir('ResMapEfficientNetb2_NormalTumor_trainingSet')
 except:
     print('ResMap already created ')
 sample = []
@@ -41,33 +41,41 @@ for i in range(df_pred_test.shape[0]):
 df_pred_test['sample'] = sample
 df_pred_test['x'] = x
 df_pred_test['y'] = y
-print('heqad  ', df_pred_test.head(), '\n\n')
+print('head  ', df_pred_test.head(), '\n\n')
 sample_maxX_maxY = {}
 path_main_TNE = '/data/gcs/lungNENomics/work/MathianE/Tiles_512_512_1802'
+path_main_NL = '/data/gcs/lungNENomics/work/MathianE/Tiles_512_512_NormalLungHENorm'
 for sample in set(df_pred_test['sample']):
     if sample.find('TNE')!= -1:
         try:
-            os.mkdir(os.path.join('ResMap64BS_training2', sample))
+            os.mkdir(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', sample))
         except:
             print('sample_folder created')
-        sample_folder = os.path.join(path_main_TNE, sample)
-        xmax = 0
-        ymax = 0
-        for folder in os.listdir(sample_folder):
-            tiles_p = os.path.join(path_main_TNE, sample, folder)
-            for tiles_l in os.listdir(tiles_p):
-                xmax_c = int(tiles_l.split('_')[1])
-                ymax_c  = int(tiles_l.split('_')[2].split('.')[0])
-                if xmax < xmax_c:
-                    xmax = xmax_c
-                else:
-                    xmax = xmax
-                if ymax < ymax_c:
-                    ymax = ymax_c
-                else:
-                    ymax = ymax
+        path_main = path_main_TNE
+    elif sample.find('NL')!= -1:
+        try:
+            os.mkdir(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', sample))
+        except:
+            print('sample_folder created')
+        path_main = path_main_NL
+    sample_folder = os.path.join(path_main, sample)
+    xmax = 0
+    ymax = 0
+    for folder in os.listdir(sample_folder):
+        tiles_p = os.path.join(path_main, sample, folder)
+        for tiles_l in os.listdir(tiles_p):
+            xmax_c = int(tiles_l.split('_')[1])
+            ymax_c  = int(tiles_l.split('_')[2].split('.')[0])
+            if xmax < xmax_c:
+                xmax = xmax_c
+            else:
+                xmax = xmax
+            if ymax < ymax_c:
+                ymax = ymax_c
+            else:
+                ymax = ymax
 
-        sample_maxX_maxY[sample] = [xmax, ymax]
+    sample_maxX_maxY[sample] = [xmax, ymax]
 for k in sample_maxX_maxY.keys():
     if k in list(df_pred_test['sample']):
         w =  tuple(sample_maxX_maxY[k])[0] + 924
@@ -91,20 +99,24 @@ for k in sample_maxX_maxY.keys():
 
         try:
             # Full WSI
-            get_full_img = '/data/gcs/lungNENomics/work/MathianE/FullSlidesToJpegHENormHighQuality/' + k + '.jpg'
-            print('get_full_img  ', get_full_img)
+            if k.find('TNE') != -1:
+                get_full_img = '/data/gcs/lungNENomics/work/MathianE/FullSlidesToJpegHENormHighQuality/' + k + '.jpg'
+                print('get_full_img  ', get_full_img)
+            elif k.find('NL') != -1:
+                get_full_img = '/data/gcs/lungNENomics/work/MathianE/FullSlidesToJpegHENormHighQualityNormalLung/' + k + '.jpg'
+                print('get_full_img  ', get_full_img)
             im = cv2.imread(get_full_img)
             fig=plt.figure(1,figsize=(15,15))
             plt.imshow(im.astype('uint8'))
             types =  list(df_pred_test[df_pred_test['sample'] == k].iloc[:,1])[0]
             if types == 1:
-                typesN = 'Atypical'
+                typesN = 'Normal'
             elif types == 0:
-                typesN = 'Typical'
+                typesN = 'Tumoral'
             else:
                 typesN = 'Normal'
             plt.title('WSI_{}_{}'.format(k,typesN))
-            fig.savefig(os.path.join('ResMap64BS_training2', k,'WSI_{}_{}.png'.format(k, typesN)), dpi=fig.dpi)
+            fig.savefig(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', k,'WSI_{}_{}.png'.format(k, typesN)), dpi=fig.dpi)
             plt.close()
         except:
             print('WSI not available')
@@ -116,11 +128,11 @@ for k in sample_maxX_maxY.keys():
             color_map = plt.cm.get_cmap('coolwarm')
             fig=plt.figure(1,figsize=(15,15))
             plt.matshow(mat_prob_atypical,  cmap=color_map,
-                        interpolation='none', vmin=0, vmax=1,  fignum=1)
-            mtitle = 'Atypical tiles scores sample {} '.format(k)
+                        interpolation='none',  fignum=1)
+            mtitle = 'Normal tiles scores sample {} '.format(k)
             plt.title(mtitle)
             plt.colorbar()
-            fig.savefig(os.path.join('ResMap64BS_training2', k,'Atypical_tiles_map_{}.png'.format(k)), dpi=fig.dpi)
+            fig.savefig(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', k,'NOrmality_tiles_map_{}.png'.format(k)), dpi=fig.dpi)
             plt.colorbar()
             plt.close()
         except:
@@ -132,10 +144,10 @@ for k in sample_maxX_maxY.keys():
             fig=plt.figure(1,figsize=(15,15))
             plt.matshow(mat_prob_norm_atypical,  cmap=color_map,
                         interpolation='none', vmin=0, vmax=1,  fignum=1)
-            mtitle = 'Atypical tiles scores sample {} '.format(k)
+            mtitle = 'Normal tiles scores sample {} '.format(k)
             plt.title(mtitle)
             plt.colorbar()
-            fig.savefig(os.path.join('ResMap64BS_training2', k,'Atypical_tiles_map_norm_{}.png'.format(k)), dpi=fig.dpi)
+            fig.savefig(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', k,'Normality_tiles_map_norm_{}.png'.format(k)), dpi=fig.dpi)
             plt.colorbar()
             plt.close()
         except:
@@ -151,79 +163,3 @@ for k in sample_maxX_maxY.keys():
 
 
 
-
-
-
-#         df_test_pred_s = df_pred_test[df_pred_test['sample'] == k]
-#         df_test_pred_s = df_test_pred_s.sort_values(by= 2)
-#         df_test_pred_s.iloc[:10,0]
-#         try:
-#             os.mkdir(os.path.join('res'+'_'+split, k, 'best_scores_normal'))
-#         except:
-#             print('folder created')
-#         try:
-#             os.mkdir(os.path.join('res'+'_'+split, k, 'best_scores_atypical'))
-#         except:
-#             print('folder created')
-#         try:
-#             os.mkdir(os.path.join('res'+'_'+split, k, 'best_scores_typical'))
-#         except:
-#             print('folder created')
-#         for ele in df_test_pred_s.iloc[:10,0]:
-#             if ele.find('home')!= -1:
-#                 pname = ele[2:-1]
-#                 print(pname)
-#                 tname = ele.split('/')[-1][:-1]
-#                 print('tname ', tname)
-#                 shutil.copy(pname, os.path.join('res'+'_'+split, k, 'best_scores_normal',tname ))
-#             else:
-#                 if ele.find('Normal')!= -1:
-#                     b  = 38
-#                 else :
-#                      b= 37
-#                 pname = '/data/gcs/lungNENomics/work/MathianE'+ ele[b:-1]
-#                 print(pname)
-#                 tname = '/data/gcs/lungNENomics/work/MathianE'+ ele[b:-1].split('/')[-1][:-1]
-#                 print(os.path.join('res'+'_'+split, k, 'best_scores_normal',tname ), '\n')
-#                 shutil.copy(pname, os.path.join('res'+'_'+split, k, 'best_scores_normal',tname ))
-
-
-#         df_test_pred_s = df_pred_test[df_pred_test['sample'] == k]
-#         df_test_pred_s = df_test_pred_s.sort_values(by= 3)
-#         df_test_pred_s.iloc[:10,0]
-
-#         for ele in df_test_pred_s.iloc[:10,0]:
-#             print('ele ', ele)
-#             if ele.find('home')!= -1:
-#                 pname = ele[2:-1]
-#                 print('pname ', pname)
-#                 tname =  ele.split('/')[-1][:-1]
-#                 print('tname ', tname)
-#                 shutil.copy(pname, os.path.join('res'+'_'+split, k, 'best_scores_typical',tname ))
-#             else:
-#                 if ele.find('Normal')!= -1:
-#                     b  = 38
-#                 else :
-#                      b= 37
-#                 pname = '/data/gcs/lungNENomics/work/MathianE'+ ele[b:-1]
-#                 print('\n sample ',k,pname)
-#                 tname = '/data/gcs/lungNENomics/work/MathianE'+ ele[b:-1].split('/')[-1][:-1]
-#                 print(os.path.join('res'+'_'+split, k, 'best_scores_typical',tname ), '\n')
-#                 shutil.copy(pname, os.path.join('res'+'_'+split, k, 'best_scores_typical',tname ))
-#         df_test_pred_s = df_pred_test[df_pred_test['sample'] == k]
-#         df_test_pred_s = df_test_pred_s.sort_values(by= 4)
-#         df_test_pred_s.iloc[:10,0]
-#         for ele in df_test_pred_s.iloc[:10,0]:
-#             print('ATYPICAL TILES ')
-#             if ele.find('home')!= -1:
-#                 pname = ele[2:-1]
-#                 tname =  ele.split('/')[-1][:-1]
-#                 shutil.copy(pname, os.path.join('res'+'_'+split, k, 'best_scores_atypical',tname ))
-#             else:
-#                 if ele.find('Normal')!= -1:
-#                     b  = 38
-#                 else:
-#                     b= 37
-#                 pname = '/data/gcs/lungNENomics/work/MathianE'+ ele[b:-1]
-#                 tname = '/data/gcs/lungNENomics/work/MathianE'+ ele[b:-1].split('/')[-1][:-1]
-#                 shutil.copy(pname, os.path.join('res'+'_'+split, k, 'best_scores_atypical',tname ))

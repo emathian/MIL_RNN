@@ -21,7 +21,7 @@ for i, s in enumerate(slides):
         IDX = i
 if IDX != -1:
     Tiles = lib['Tiles'][IDX]     
-    with open('error_tiles_{}.txt'.format(split), 'a') as f:
+    with open('error_tiles_{}_{}.txt'.format(split, folder), 'a') as f:
         for t in Tiles:
             try:
                 if cv2.imread(t).shape !=  None:

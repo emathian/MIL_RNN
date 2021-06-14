@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.utils.data as data
 import torchvision.transforms as transforms
 import torchvision.models as models
+from efficientnet_pytorch import EfficientNet
 import json
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--lib', type=str, default='filelist', help='path to data file')
@@ -26,9 +27,10 @@ def main():
     global args
     args = parser.parse_args()
 
+    
     #load model
-    model = models.resnet34(True)
-    model.fc = nn.Linear(model.fc.in_features, 2)
+    model = EfficientNet.from_pretrained("efficientnet-b2")
+    model.fc =  nn.Linear(model._fc.in_features, 2)
 
     ch = torch.load(args.model)
     model.load_state_dict(ch['state_dict'])
