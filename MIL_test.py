@@ -27,11 +27,17 @@ def main():
     global args
     args = parser.parse_args()
 
+#      if args.previous_checkpoint is None:
+#         model = EfficientNet.from_pretrained("efficientnet-b2") #= models.resnet34(True)
+#         model.fc = nn.Linear(model._fc.in_features, 2)
+#     else:
+#         model = EfficientNet.from_pretrained(args.previous_checkpoint)
+#         model.fc = nn.Linear(model._fc.in_features, 2)
+#     model.cuda()
     
     #load model
-    model = EfficientNet.from_pretrained("efficientnet-b2")
-    model.fc =  nn.Linear(model._fc.in_features, 2)
-
+    model = models.resnet34(True)
+    model.fc = nn.Linear(model.fc.in_features, 2)
     ch = torch.load(args.model)
     model.load_state_dict(ch['state_dict'])
     model = model.cuda()

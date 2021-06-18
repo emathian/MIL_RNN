@@ -12,13 +12,24 @@ import io
 import umap
 import matplotlib
 import shutil
+import argparse
+parser = argparse.ArgumentParser(description='Map MIL Scores')
+parser.add_argument('--prob_file', type=str, default='', help='path to probability.csv')
+parser.add_argument('--path_tne_tiles', type=str, default='/data/gcs/lungNENomics/work/MathianE/Tiles_512_512_1802', help='path to tne tiles main folder')
+parser.add_argument('--path_NL_tiles', type=str, default='/data/gcs/lungNENomics/work/MathianE/Tiles_512_512_NormalLungHENorm', help='path to normal lung tiles main folder')
+parser.add_argument('--path_full_LNEN_slides', type=str, default='/data/gcs/lungNENomics/work/MathianE/FullSlidesToJpegHENormHighQuality/', help='path to full LNEN WSI main folder')
+parser.add_argument('--path_full_NL_slides', type=str, default='/data/gcs/lungNENomics/work/MathianE/FullSlidesToJpegHENormHighQualityNormalLung/', help='path to full NL WSI main folder')
+parser.add_argument('--outputdir', type=str, default='', help='path to output directory')
 
-pred_file = 'EfficientNetb2_NormalTumor_TrainingInf/probability.csv'
-
+args = parser.parse_args()
+pred_file = args.prob_file   #'EfficientNetb2_NormalTumor_TrainingInf/probability.csv'
 df_pred_test = pd.read_csv(pred_file,  index_col='Sample')
 print(df_pred_test.head(), '\n\n\n' , df_pred_test.columns, df_pred_test.index)
+outputdir = args.outputdir
+full_LNEN_WSI = args.path_full_LNEN_slides
+full_NL_WSI = args.path_full_NL_slides
 try:
-    os.mkdir('ResMapEfficientNetb2_NormalTumor_trainingSet')
+    os.mkdir(outputdir)
 except:
     print('ResMap already created ')
 sample = []
@@ -43,18 +54,18 @@ df_pred_test['x'] = x
 df_pred_test['y'] = y
 print('head  ', df_pred_test.head(), '\n\n')
 sample_maxX_maxY = {}
-path_main_TNE = '/data/gcs/lungNENomics/work/MathianE/Tiles_512_512_1802'
-path_main_NL = '/data/gcs/lungNENomics/work/MathianE/Tiles_512_512_NormalLungHENorm'
+path_main_TNE = args.path_tne_tiles
+path_main_NL = args.path_NL_tiles
 for sample in set(df_pred_test['sample']):
     if sample.find('TNE')!= -1:
         try:
-            os.mkdir(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', sample))
+            os.mkdir(os.path.join(outputdir, sample))
         except:
             print('sample_folder created')
         path_main = path_main_TNE
     elif sample.find('NL')!= -1:
         try:
-            os.mkdir(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', sample))
+            os.mkdir(os.path.join(outputdir, sample))
         except:
             print('sample_folder created')
         path_main = path_main_NL
@@ -83,8 +94,8 @@ for k in sample_maxX_maxY.keys():
         seq = 924
         W = len(list(range(1, w, seq)))
         H = len(list(range(1, h, seq)))
-        mat_prob_atypical =   np.zeros((W*10, H*10))
-        mat_prob_norm_atypical =   np.zeros((W*10, H*10))
+        mat_prob_atypical =   np.zeros((W*10, H*10)) -1
+        mat_prob_norm_atypical =   np.zeros((W*10, H*10)) -1
         df_test_pred_s = df_pred_test[df_pred_test['sample'] == k]
         min_p = df_test_pred_s['probability'].min()
         max_p =  df_test_pred_s['probability'].max()
@@ -100,10 +111,10 @@ for k in sample_maxX_maxY.keys():
         try:
             # Full WSI
             if k.find('TNE') != -1:
-                get_full_img = '/data/gcs/lungNENomics/work/MathianE/FullSlidesToJpegHENormHighQuality/' + k + '.jpg'
+                get_full_img = full_LNEN_WSI + k + '.jpg'
                 print('get_full_img  ', get_full_img)
             elif k.find('NL') != -1:
-                get_full_img = '/data/gcs/lungNENomics/work/MathianE/FullSlidesToJpegHENormHighQualityNormalLung/' + k + '.jpg'
+                get_full_img = full_NL_WSI + k + '.jpg'
                 print('get_full_img  ', get_full_img)
             im = cv2.imread(get_full_img)
             fig=plt.figure(1,figsize=(15,15))
@@ -116,7 +127,7 @@ for k in sample_maxX_maxY.keys():
             else:
                 typesN = 'Normal'
             plt.title('WSI_{}_{}'.format(k,typesN))
-            fig.savefig(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', k,'WSI_{}_{}.png'.format(k, typesN)), dpi=fig.dpi)
+            fig.savefig(os.path.join(outputdir, k,'WSI_{}_{}.png'.format(k, typesN)), dpi=fig.dpi)
             plt.close()
         except:
             print('WSI not available')
@@ -132,7 +143,7 @@ for k in sample_maxX_maxY.keys():
             mtitle = 'Normal tiles scores sample {} '.format(k)
             plt.title(mtitle)
             plt.colorbar()
-            fig.savefig(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', k,'NOrmality_tiles_map_{}.png'.format(k)), dpi=fig.dpi)
+            fig.savefig(os.path.join(outputdir, k,'Normality_tiles_map_{}.png'.format(k)), dpi=fig.dpi)
             plt.colorbar()
             plt.close()
         except:
@@ -143,11 +154,11 @@ for k in sample_maxX_maxY.keys():
             color_map = plt.cm.get_cmap('coolwarm')
             fig=plt.figure(1,figsize=(15,15))
             plt.matshow(mat_prob_norm_atypical,  cmap=color_map,
-                        interpolation='none', vmin=0, vmax=1,  fignum=1)
+                        interpolation='none',  fignum=1)
             mtitle = 'Normal tiles scores sample {} '.format(k)
             plt.title(mtitle)
             plt.colorbar()
-            fig.savefig(os.path.join('ResMapEfficientNetb2_NormalTumor_trainingSet', k,'Normality_tiles_map_norm_{}.png'.format(k)), dpi=fig.dpi)
+            fig.savefig(os.path.join(outputdir, k,'Normality_tiles_map_norm_{}.png'.format(k)), dpi=fig.dpi)
             plt.colorbar()
             plt.close()
         except:
