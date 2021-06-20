@@ -34,9 +34,9 @@ def main():
 #         model = EfficientNet.from_pretrained(args.previous_checkpoint)
 #         model.fc = nn.Linear(model._fc.in_features, 2)
 #     model.cuda()
-    
+
     #load model
-    model = models.resnet34(True)
+    model = models.resnet50(True)
     model.fc = nn.Linear(model.fc.in_features, 2)
     ch = torch.load(args.model)
     model.load_state_dict(ch['state_dict'])

@@ -17,6 +17,7 @@ import torchvision.transforms as transforms
 import torchvision.models as models
 from efficientnet_pytorch import EfficientNet
 from torch.optim.lr_scheduler import StepLR
+from PIL import Image
 
 
 parser = argparse.ArgumentParser(description='MIL-nature-medicine-2019 tile classifier training script')
@@ -39,11 +40,13 @@ def main():
     #cudnn
     
     if args.previous_checkpoint is None:
-        model = models.resnet50(True)
-        model.fc = nn.Linear(model.fc.in_features, 2)
+        model = ConvNet()
+        #model.classifier[6] = nn.Linear(4096,2)
+        #model.fc = nn.Linear(model.fc.in_features, 2)
     else:
-        model = models.resnet50(args.previous_checkpoint)
-        model.fc = nn.Linear(model.fc.in_features, 2)
+        model = models.alexnet(args.previous_checkpoint)
+        model.classifier[6] = nn.Linear(4096,2)
+        #model.fc = nn.Linear(model.fc.in_features, 2)
     model.cuda()
 
 
@@ -52,7 +55,7 @@ def main():
     else:
         w = torch.Tensor([1-args.weights,args.weights])
         criterion = nn.CrossEntropyLoss(w).cuda()
-    lr_ = 1e-1
+    lr_ = 1e-3
     optimizer = optim.Adam(model.parameters(), lr=lr_, weight_decay=1e-4)
     scheduler =  StepLR(optimizer, step_size=10, gamma=0.1)
 
@@ -61,7 +64,9 @@ def main():
     #normalization
     #normalize = transforms.Normalize(mean=[0.5,0.5,0.5],std=[0.1,0.1,0.1])
     color = transforms.ColorJitter(brightness=0.1, contrast=0.2, saturation=0.3, hue=0.02)
-    trans = transforms.Compose([transforms.ToTensor(), color])
+    ##trans = transforms.Compose([transforms.ToTensor(), color])
+    trans = transforms.Compose([ color, transforms.ToTensor()])
+
 
 
     #load data
@@ -85,21 +90,19 @@ def main():
     #loop throuh epochs
     for epoch in range(args.nepochs):
         if epoch > 3 and epoch <= 6:
-            lr_ = 1e-2
+            lr_ = 1e-4
             optimizer.param_groups[0]['lr'] = lr_
         elif epoch > 6 and epoch <= 18:
-            lr_ = 1e-3
+            lr_ = 1e-4
             optimizer.param_groups[0]['lr'] = lr_
         else:
             scheduler.step()
         print('Epoch:', epoch,'LR:', scheduler.get_lr())
         train_dset.setmode(1)
         probs = inference(epoch, train_loader, model, 'train')
-        
         maxs = group_max(np.array(train_dset.slideIDX), probs, len(train_dset.targets))
         pred = [1 if x >= 0.5 else 0 for x in maxs]
         err,fpr,fnr = calc_err(pred, train_dset.targets)
-        print('Training\tEpoch: [{}/{}]\tError: {}\tFPR: {}\tFNR: {}'.format(epoch+1, args.nepochs, err, fpr, fnr))
         fconv = open(os.path.join(args.output, 'convergence.csv'), 'a')
         fconv.write('{},Training_error,{}\n'.format(epoch+1, err))
         fconv.write('{},Training_fpr,{}\n'.format(epoch+1, fpr))
@@ -180,11 +183,7 @@ def calc_err(pred,real):
     return err, fpr, fnr
 
 def group_argtopk(groups, data,k=1):
-    print('data  ', data)
-    print('groups  ', groups)
-    print(type(data), type(groups))
-    print(data.shape)
-    print(groups.shape)
+
     order = np.lexsort((data, groups))
     groups = groups[order]
     data = data[order]
@@ -205,6 +204,56 @@ def group_max(groups, data, nmax):
     out[groups[index]] = data[index]
     return out
 
+class ConvNet(nn.Module):
+    def __init__(self, num_classes = 2):
+        super(ConvNet, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(64, momentum=0.01),
+            nn.MaxPool2d(kernel_size=3, stride=2),
+            #nn.Conv2d(64, 192, kernel_size=5, padding=2),
+            #nn.ReLU(inplace=True),
+            #nn.MaxPool2d(kernel_size=3, stride=2),
+            nn.Conv2d(64, 192, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(192, momentum=0.01),
+#             nn.Conv2d(192, 256, kernel_size=3, padding=1),
+#             nn.ReLU(inplace=True),
+            nn.Conv2d(192, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2),
+#             nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
+#             nn.ReLU(inplace=True),
+#             nn.MaxPool2d(kernel_size=3, stride=2),
+#             nn.Conv2d(64, 192, kernel_size=5, padding=2),
+#             nn.ReLU(inplace=True),
+#             nn.MaxPool2d(kernel_size=3, stride=2),
+#             nn.Conv2d(192, 384, kernel_size=3, padding=1),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(384, 256, kernel_size=3, padding=1),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(256, 256, kernel_size=3, padding=1),
+#             nn.ReLU(inplace=True),
+#             nn.MaxPool2d(kernel_size=3, stride=2),
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
+        self.classifier = nn.Sequential(
+            nn.Dropout(),
+            nn.Linear(256 * 6 * 6, 1024),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(1024, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, num_classes),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
 class MILdataset(data.Dataset):
     def __init__(self, libraryfile='', transform=None):
         with open(libraryfile) as json_file:
@@ -232,14 +281,11 @@ class MILdataset(data.Dataset):
         self.slideIDX = slideIDX
         self.transform = transform
         self.mode = None
-#         self.mult = lib['mult']
-#         self.size = int(np.round(224*lib['mult']))
-#         self.level = lib['level']
+
     def setmode(self,mode):
         print('mode ', mode)
         self.mode = mode
     def maketraindata(self, idxs):
-        print('idxs  ',idxs)
         self.t_data = [(self.slideIDX[x],self.tiles_full[x],self.targets[self.slideIDX[x]]) for x in idxs]
     def shuffletraindata(self):
         self.t_data = random.sample(self.t_data, len(self.t_data))
@@ -247,7 +293,8 @@ class MILdataset(data.Dataset):
         if self.mode == 1:
             slideIDX = self.slideIDX[index]
             tiles_path = self.tiles_full[index]
-            img = cv2.imread(tiles_path)
+            ##img = cv2.imread(tiles_path)
+            img = Image.open(tiles_path)
             if self.transform is not None:
                 img = self.transform(img)
             return img
@@ -255,7 +302,8 @@ class MILdataset(data.Dataset):
             slideIDX, coord, target = self.t_data[index]
             tiles_path = self.tiles_full[index]
             try:
-                img = cv2.imread(tiles_path)
+                img = Image.open(tiles_path)
+                #img = cv2.imread(tiles_path)
             except:
                 print('ERROR    ', tiles_path)
             if self.transform is not None:
