@@ -30,7 +30,7 @@ parser.add_argument('--nepochs', type=int, default=100, help='number of epochs')
 parser.add_argument('--workers', default=4, type=int, help='number of data loading workers (default: 4)')
 parser.add_argument('--test_every', default=10, type=int, help='test on val every (default: 10)')
 parser.add_argument('--weights', default=0.5, type=float, help='unbalanced positive class weight (default: 0.5, balanced classes)')
-parser.add_argument('--k', default=1, type=int, help='top k tiles are assumed to be of the same class as the slide (default: 1, standard MIL)')
+parser.add_argument('--k', default=1, type=float, help='top k tiles are assumed to be of the same class as the slide (default: 1, standard MIL)')
 parser.add_argument('--previous_checkpoint', default=None, type=str, help='Path to the previous checkopoint if the training has been interupted')
 
 best_acc = 0
@@ -40,12 +40,23 @@ def main():
     #cudnn
     
     if args.previous_checkpoint is None:
-        model = ConvNet()
+        model = models.resnet34(True)
+        model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3,
+                               bias=False)
+        model.fc = nn.Linear(model.fc.in_features, 2)
+        ## Alexnet
+#         model =  models.alexnet(args.previous_checkpoint)
+#         model.features [0] = nn.Conv2d(1, 64, kernel_size=11, stride=4, padding=2)
+#         model.classifier[6] = nn.Linear(4096,2)
+        ## My classifier
+        #model = ConvNet()
         #model.classifier[6] = nn.Linear(4096,2)
         #model.fc = nn.Linear(model.fc.in_features, 2)
     else:
-        model = models.alexnet(args.previous_checkpoint)
-        model.classifier[6] = nn.Linear(4096,2)
+        model = models.resnet34(args.previous_checkpoint)
+        model.fc = nn.Linear(model.fc.in_features, 2)
+#         model = models.alexnet(args.previous_checkpoint)
+#         model.classifier[6] = nn.Linear(4096,2)
         #model.fc = nn.Linear(model.fc.in_features, 2)
     model.cuda()
 
@@ -55,7 +66,7 @@ def main():
     else:
         w = torch.Tensor([1-args.weights,args.weights])
         criterion = nn.CrossEntropyLoss(w).cuda()
-    lr_ = 1e-3
+    lr_ = 1e-1
     optimizer = optim.Adam(model.parameters(), lr=lr_, weight_decay=1e-4)
     scheduler =  StepLR(optimizer, step_size=10, gamma=0.1)
 
@@ -90,10 +101,10 @@ def main():
     #loop throuh epochs
     for epoch in range(args.nepochs):
         if epoch > 3 and epoch <= 6:
-            lr_ = 1e-4
+            lr_ = 1e-2
             optimizer.param_groups[0]['lr'] = lr_
         elif epoch > 6 and epoch <= 18:
-            lr_ = 1e-4
+            lr_ = 1e-3
             optimizer.param_groups[0]['lr'] = lr_
         else:
             scheduler.step()
@@ -183,7 +194,7 @@ def calc_err(pred,real):
     return err, fpr, fnr
 
 def group_argtopk(groups, data,k=1):
-
+    k = int(len(groups) * k)
     order = np.lexsort((data, groups))
     groups = groups[order]
     data = data[order]
@@ -204,56 +215,55 @@ def group_max(groups, data, nmax):
     out[groups[index]] = data[index]
     return out
 
-class ConvNet(nn.Module):
-    def __init__(self, num_classes = 2):
-        super(ConvNet, self).__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
-            nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64, momentum=0.01),
-            nn.MaxPool2d(kernel_size=3, stride=2),
-            #nn.Conv2d(64, 192, kernel_size=5, padding=2),
-            #nn.ReLU(inplace=True),
-            #nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(64, 192, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.BatchNorm2d(192, momentum=0.01),
-#             nn.Conv2d(192, 256, kernel_size=3, padding=1),
-#             nn.ReLU(inplace=True),
-            nn.Conv2d(192, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),
-#             nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
-#             nn.ReLU(inplace=True),
-#             nn.MaxPool2d(kernel_size=3, stride=2),
-#             nn.Conv2d(64, 192, kernel_size=5, padding=2),
-#             nn.ReLU(inplace=True),
-#             nn.MaxPool2d(kernel_size=3, stride=2),
-#             nn.Conv2d(192, 384, kernel_size=3, padding=1),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(384, 256, kernel_size=3, padding=1),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(256, 256, kernel_size=3, padding=1),
-#             nn.ReLU(inplace=True),
-#             nn.MaxPool2d(kernel_size=3, stride=2),
-        )
-        self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
-        self.classifier = nn.Sequential(
-            nn.Dropout(),
-            nn.Linear(256 * 6 * 6, 1024),
-            nn.ReLU(inplace=True),
-            nn.Dropout(),
-            nn.Linear(1024, 1024),
-            nn.ReLU(inplace=True),
-            nn.Linear(1024, num_classes),
+class Attention(nn.Module):
+    def __init__(self):
+        super(Attention, self).__init__()
+        self.L = 500
+        self.D = 128
+        self.K = 1
+
+        self.feature_extractor_part1 = nn.Sequential(
+            nn.Conv2d(1, 20, kernel_size=5),
+            nn.ReLU(),
+            nn.MaxPool2d(2, stride=2),
+            nn.Conv2d(20, 50, kernel_size=5),
+            nn.ReLU(),
+            nn.MaxPool2d(2, stride=2)
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.classifier(x)
-        return x
+        self.feature_extractor_part2 = nn.Sequential(
+            nn.Linear(50 * 4 * 4, self.L),
+            nn.ReLU(),
+        )
+
+        self.attention = nn.Sequential(
+            nn.Linear(self.L, self.D),
+            nn.Tanh(),
+            nn.Linear(self.D, self.K)
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Linear(self.L*self.K, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        x = x.squeeze(0)
+
+        H = self.feature_extractor_part1(x)
+        H = H.view(-1, 50 * 4 * 4)
+        H = self.feature_extractor_part2(H)  # NxL
+
+        A = self.attention(H)  # NxK
+        A = torch.transpose(A, 1, 0)  # KxN
+        A = F.softmax(A, dim=1)  # softmax over N
+
+        M = torch.mm(A, H)  # KxL
+
+        Y_prob = self.classifier(M)
+        Y_hat = torch.ge(Y_prob, 0.5).float()
+
+        return Y_prob, Y_hat, A
 class MILdataset(data.Dataset):
     def __init__(self, libraryfile='', transform=None):
         with open(libraryfile) as json_file:
@@ -295,6 +305,9 @@ class MILdataset(data.Dataset):
             tiles_path = self.tiles_full[index]
             ##img = cv2.imread(tiles_path)
             img = Image.open(tiles_path)
+            width = 512
+            height = 512
+            img = img.resize((width, height))
             if self.transform is not None:
                 img = self.transform(img)
             return img
@@ -303,6 +316,9 @@ class MILdataset(data.Dataset):
             tiles_path = self.tiles_full[index]
             try:
                 img = Image.open(tiles_path)
+                width = 512
+                height = 512
+                img = img.resize((width, height))
                 #img = cv2.imread(tiles_path)
             except:
                 print('ERROR    ', tiles_path)
